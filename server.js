@@ -1,6 +1,5 @@
 const WebSocket = require('ws');
 
-// Render automatically assigns a PORT environment variable
 const port = process.env.PORT || 8080;
 const wss = new WebSocket.Server({ port: port });
 
@@ -11,7 +10,7 @@ const globalUsers = {};  // Maps username -> WebSocket client (for routing invit
 wss.on('connection', (ws) => {
     let currentRoom = null;
     let playerId = Math.random().toString(36).substring(2, 9);
-    let currentUser = null; // Stores the player's username if they provide it
+    let currentUser = null; 
 
     ws.on('message', (message) => {
         let data;
@@ -21,11 +20,11 @@ wss.on('connection', (ws) => {
             return; // Ignore malformed JSON
         }
 
-        // 1. Handle user joining a specific project room
+        // 1. Handle joining a room
         if (data.type === 'join') {
             const roomId = data.roomId;
             
-            // If the client sends their username, register them globally so they can receive invites
+            // Register the user globally for invites
             if (data.username) {
                 currentUser = data.username;
                 globalUsers[currentUser] = ws;
@@ -46,11 +45,11 @@ wss.on('connection', (ws) => {
             console.log(`[JOIN] ${currentUser || playerId} joined room: ${roomId}`);
         }
 
-        // 2. Broadcast High-Frequency Events (Cursors & Block Syncs)
+        // 2. Broadcast High-Frequency Events (Cursors & Blocks)
         if (data.type === 'cursor' || data.type === 'block_change') {
             if (currentRoom && rooms[currentRoom]) {
                 rooms[currentRoom].forEach(client => {
-                    // Broadcast to everyone else in the room EXCEPT the sender
+                    // Send to everyone else EXCEPT the person who made the change
                     if (client !== ws && client.readyState === WebSocket.OPEN) {
                         client.send(JSON.stringify({ ...data, playerId }));
                     }
@@ -66,7 +65,6 @@ wss.on('connection', (ws) => {
             const targetSocket = globalUsers[targetUser];
             
             if (targetSocket && targetSocket.readyState === WebSocket.OPEN) {
-                // Route the invite directly to the target user's WebSocket connection
                 targetSocket.send(JSON.stringify({
                     type: 'receive_invite',
                     roomId: roomId,
@@ -74,38 +72,31 @@ wss.on('connection', (ws) => {
                 }));
                 console.log(`[INVITE] Sent from ${currentUser || playerId} to ${targetUser}`);
             } else {
-                ws.send(JSON.stringify({ type: 'error', message: `User ${targetUser} is not currently online.` }));
+                ws.send(JSON.stringify({ type: 'error', message: `User ${targetUser} is not online.` }));
             }
         }
     });
 
     // 4. Cleanup on Disconnect
     ws.on('close', () => {
-        // Remove the user from their active room
         if (currentRoom && rooms[currentRoom]) {
             rooms[currentRoom].delete(ws);
             
-            // Notify remaining players so they can clear this user's cursor from the DOM
             rooms[currentRoom].forEach(client => {
                 if (client.readyState === WebSocket.OPEN) {
                     client.send(JSON.stringify({ type: 'leave', playerId }));
                 }
             });
             
-            // Destroy the room if it is empty to save server memory
             if (rooms[currentRoom].size === 0) {
                 delete rooms[currentRoom];
-                console.log(`[CLOSE] Room ${currentRoom} destroyed (empty)`);
             }
         }
         
-        // Remove the user from the global invite registry
         if (currentUser && globalUsers[currentUser] === ws) {
             delete globalUsers[currentUser];
         }
-        
-        console.log(`[DISCONNECT] ${currentUser || playerId} left.`);
     });
 });
 
-console.log(`Live Collab Server is running on port ${port}...`);
+console.log(`Live Collab Server running on port ${port}...`);
